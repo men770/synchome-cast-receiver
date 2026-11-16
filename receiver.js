@@ -12,6 +12,7 @@
  *     {type:"rate",  rate}        playbackRate (e.g. 1.00002 for clock-drift correction)
  *     {type:"stop"}
  *     {type:"ping",  id}          -> {type:"pong", id, ...}  (round-trip timing)
+ *     {type:"meta",  title, artist} show the current track on displays
  *   receiver -> sender (broadcast, every second and on events)
  *     {type:"pos", ct, be, rate, paused, rs, perf, stalls}
  *         ct   = audio.currentTime (s)       be = end of buffered range (s)
@@ -80,6 +81,11 @@
         a.removeAttribute("src");
         a.load();
         label.textContent = "SyncHome";
+        break;
+      case "meta":
+        // current track for displays (e.g. Nest Hub); Hebrew/RTL safe
+        label.dir = "auto";
+        label.textContent = [m.title, m.artist].filter(Boolean).join(" — ") || "SyncHome";
         break;
       case "ping":
         send({ type: "pong", id: m.id, ct: a.currentTime, perf: performance.now() });
