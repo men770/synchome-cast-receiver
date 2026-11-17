@@ -17,6 +17,8 @@
  *     {type:"pos", ct, be, rate, paused, rs, perf, stalls}
  *         ct   = audio.currentTime (s)       be = end of buffered range (s)
  *         perf = performance.now() (ms)      stalls = number of 'waiting' events
+ *         ol/bl = AudioContext output/base latency (s): how long after the audio pipeline the
+ *                 sound actually leaves the speaker (sender corrects for changes in it)
  *     {type:"event", e, ...}
  */
 (function () {
@@ -28,6 +30,26 @@
   var stalls = 0;
   var lead = 0.3;
 
+  // Latency probe only: a silent Web Audio graph on the same output device. The music itself
+  // stays in the plain <audio> element (no CORS / routing risk).
+  var ac = null;
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      ac = new AC({ latencyHint: "playback" });
+      var g = ac.createGain(); g.gain.value = 0;
+      var o = ac.createOscillator(); o.connect(g); g.connect(ac.destination); o.start();
+    }
+  } catch (e) { ac = null; }
+  function wake() { if (ac && ac.state !== "running") { ac.resume().catch(function () {}); } }
+  function lat() {
+    if (!ac) { return {}; }
+    var r = { acs: ac.state };
+    if (typeof ac.outputLatency === "number") { r.ol = ac.outputLatency; }
+    if (typeof ac.baseLatency === "number") { r.bl = ac.baseLatency; }
+    return r;
+  }
+
   function send(obj) {
     try { ctx.sendCustomMessage(NS, undefined, obj); } catch (e) { /* no sender yet */ }
   }
@@ -38,8 +60,11 @@
   }
 
   function status() {
-    send({ type: "pos", ct: a.currentTime, be: bufferedEnd(), rate: a.playbackRate,
-           paused: a.paused, rs: a.readyState, perf: performance.now(), stalls: stalls });
+    var m = { type: "pos", ct: a.currentTime, be: bufferedEnd(), rate: a.playbackRate,
+              paused: a.paused, rs: a.readyState, perf: performance.now(), stalls: stalls, v: 2 };
+    var l = lat();
+    for (var k in l) { m[k] = l[k]; }
+    send(m);
   }
 
   a.addEventListener("waiting", function () {
@@ -62,6 +87,7 @@
         stalls = 0;
         a.preservesPitch = false;          // rate trims behave like resampling
         a.src = m.url;
+        wake();
         a.play().catch(function (e) { send({ type: "event", e: "play-failed", msg: String(e) }); });
         break;
       case "trim":
